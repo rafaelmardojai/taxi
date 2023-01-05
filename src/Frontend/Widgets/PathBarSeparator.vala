@@ -16,16 +16,14 @@
 
 namespace Taxi {
 
-    class PathBarSeparator : Gtk.Widget {
+    class PathBarSeparator : Gtk.DrawingArea {
 
         construct {
-            set_has_window (false);
+            width_request = 10;
+            set_draw_func (draw);
         }
 
-        public override bool draw (Cairo.Context cr) {
-            int width = get_allocated_width ();
-            int height = get_allocated_height ();
-
+        private void draw (Gtk.DrawingArea draw, Cairo.Context cr, int width, int height) {
             cr.set_antialias (Cairo.Antialias.SUBPIXEL);
             cr.set_line_cap (Cairo.LineCap.SQUARE);
 
@@ -42,13 +40,6 @@ namespace Taxi {
             cr.line_to (width - 1, height/2);
             cr.line_to (0, height - 1);
             cr.stroke ();
-
-            return true;
-        }
-
-        public override void get_preferred_width (out int minimum_width, out int natural_width) {
-            minimum_width = 10;
-            natural_width = 10;
         }
     }
 }

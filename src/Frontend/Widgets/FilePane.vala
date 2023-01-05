@@ -21,23 +21,18 @@ namespace Taxi {
         URI_LIST;
     }
 
-    const Gtk.TargetEntry[] target_list = {
-        { "test/plain",    0, Target.STRING },
-        { "text/uri-list", 0, Target.URI_LIST }
-    };
-
-    class FilePane : Gtk.Grid {
+    class FilePane : Gtk.Box {
         private Soup.URI current_uri;
         private PathBar path_bar;
         private Gtk.ListBox list_box;
         private Gtk.Stack stack;
+        private Gtk.DropTarget drop_target;
+
+        public Location location;
 
         public signal void file_dragged (string uri);
         public signal void transfer (string uri);
-        public signal void navigate (Soup.URI uri);
-        public signal void @delete (Soup.URI uri);
         public signal void rename (Soup.URI uri);
-        public signal void open (Soup.URI uri);
         public signal void edit (Soup.URI uri);
 
         delegate void ActivateFunc (Soup.URI uri);
@@ -51,9 +46,8 @@ namespace Taxi {
             placeholder_label.valign = Gtk.Align.CENTER;
             placeholder_label.show ();
 
-            var placeholder_label_context = placeholder_label.get_style_context ();
-            placeholder_label_context.add_class (Granite.STYLE_CLASS_H2_LABEL);
-            placeholder_label_context.add_class (Gtk.STYLE_CLASS_DIM_LABEL);
+            placeholder_label.add_css_class ("title-2");
+            placeholder_label.add_css_class ("dim-label");
 
             list_box = new Gtk.ListBox ();
             list_box.hexpand = true;
@@ -61,8 +55,9 @@ namespace Taxi {
             list_box.set_placeholder (placeholder_label);
             list_box.set_selection_mode (Gtk.SelectionMode.MULTIPLE);
 
-            var scrolled_pane = new Gtk.ScrolledWindow (null, null);
-            scrolled_pane.add (list_box);
+            var scrolled_pane = new Gtk.ScrolledWindow ();
+            scrolled_pane.hscrollbar_policy = Gtk.PolicyType.NEVER;
+            scrolled_pane.set_child (list_box);
 
             var spinner = new Gtk.Spinner ();
             spinner.hexpand = true;
@@ -75,16 +70,16 @@ namespace Taxi {
             stack.add_named (scrolled_pane, "list");
             stack.add_named (spinner, "spinner");
 
-            var inner_grid = new Gtk.Grid ();
-            inner_grid.set_orientation (Gtk.Orientation.VERTICAL);
-            inner_grid.add (path_bar);
-            inner_grid.add (stack);
-            inner_grid.show_all ();
+            var inner_grid = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+            inner_grid.append (path_bar);
+            inner_grid.append (stack);
 
-            add (inner_grid);
+            append (inner_grid);
 
-            list_box.drag_drop.connect (on_drag_drop);
-            list_box.drag_data_received.connect (on_drag_data_received);
+            drop_target = new Gtk.DropTarget (typeof (Gdk.FileList), Gdk.DragAction.COPY);
+            drop_target.on_drop.connect (on_drag_drop);
+            list_box.add_controller (drop_target);
+
             list_box.row_activated.connect ((row) => {
                 var uri = row.get_data<Soup.URI> ("uri");
                 var type = row.get_data<FileType> ("type");
@@ -95,15 +90,10 @@ namespace Taxi {
                 }
             });
 
-            path_bar.navigate.connect (uri => navigate (uri));
+            path_bar.navigate.connect ((uri) => {
+                navigate (uri);
+            });
             path_bar.transfer.connect (on_pathbar_transfer);
-
-            Gtk.drag_dest_set (
-                list_box,
-                Gtk.DestDefaults.ALL,
-                target_list,
-                Gdk.DragAction.COPY
-            );
         }
 
         private void on_pathbar_transfer () {
@@ -114,10 +104,12 @@ namespace Taxi {
 
         private Gee.List<string> get_marked_row_uris () {
             var uri_list = new Gee.ArrayList<string> ();
-            foreach (Gtk.Widget row in list_box.get_children ()) {
+            var row = list_box.get_first_child ();
+            while (row != null) {
                 if (row.get_data<Gtk.CheckButton> ("checkbutton").get_active ()) {
                     uri_list.add (current_uri.to_string (false) + "/" + row.get_data<string> ("name"));
                 }
+                row = row.get_next_sibling ();
             }
             return uri_list;
         }
@@ -130,9 +122,8 @@ namespace Taxi {
             alphabetical_order (gee_list);
             foreach (FileInfo file_info in gee_list) {
                 if (file_info.get_name ().get_char (0) == '.') continue;
-                list_box.add (new_row (file_info));
+                list_box.append (new_row (file_info));
             }
-            list_box.show_all ();
         }
 
         private Gee.ArrayList<G> glib_to_gee<G> (GLib.List<G> list) {
@@ -163,58 +154,59 @@ namespace Taxi {
             var checkbox = new Gtk.CheckButton ();
             checkbox.toggled.connect (on_checkbutton_toggle);
 
-            var icon = new Gtk.Image.from_gicon (file_info.get_icon (), Gtk.IconSize.DND);
+            var icon = new Gtk.Image.from_gicon (file_info.get_icon ());
 
             var name = new Gtk.Label (file_info.get_name ());
+            name.ellipsize = Pango.EllipsizeMode.END;
             name.halign = Gtk.Align.START;
             name.hexpand = true;
 
-            var row = new Gtk.Grid () {
-                column_spacing = 6,
+            var row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6) {
                 hexpand = true,
-                margin = 6,
+                margin_top = 6,
+                margin_bottom = 6,
                 margin_start = 12,
                 margin_end = 12
             };
-            row.add (checkbox);
-            row.add (icon);
-            row.add (name);
+            row.append (checkbox);
+            row.append (icon);
+            row.append (name);
 
             if (file_info.get_file_type () == FileType.REGULAR) {
                 var size = new Gtk.Label (bit_string_format (file_info.get_size ()));
-                size.get_style_context ().add_class (Gtk.STYLE_CLASS_DIM_LABEL);
+                size.add_css_class ("dim-label");
 
-                row.add (size);
+                row.append (size);
             }
 
             var uri = new Soup.URI.with_base (current_uri, file_info.get_name ());
 
-            var ebrow = new Gtk.EventBox ();
-            ebrow.add (row);
-
             var lbrow = new Gtk.ListBoxRow ();
             lbrow.hexpand = true;
-            lbrow.add (ebrow);
+            lbrow.tooltip_text = file_info.get_name ();
+            lbrow.set_child (row);
             lbrow.set_data ("uri", uri);
             lbrow.set_data ("name", file_info.get_name ());
             lbrow.set_data ("type", file_info.get_file_type ());
             lbrow.set_data ("checkbutton", checkbox);
 
-            Gtk.drag_source_set (
-                ebrow,
-                Gdk.ModifierType.BUTTON1_MASK,
-                target_list,
-                Gdk.DragAction.COPY
-            );
+            var click_event = new Gtk.GestureClick ();
+            click_event.set_button (3);
+            lbrow.add_controller (click_event);
 
-            ebrow.set_data ("name", file_info.get_name ());
-            ebrow.set_data ("type", file_info.get_file_type ());
-            ebrow.drag_begin.connect (on_drag_begin);
-            ebrow.drag_data_get.connect (on_drag_data_get);
-            ebrow.button_press_event.connect ((event) =>
-                on_ebr_button_press (event, ebrow, lbrow)
-            );
-            ebrow.popup_menu.connect (() => on_ebr_popup_menu (ebrow));
+            var drag_event = new Gtk.DragSource ();
+
+            var file = File.new_for_uri(uri.to_string (false));
+            var drag_content = new Gdk.ContentProvider.for_value (file);
+            drag_event.set_content (drag_content);
+            lbrow.add_controller (drag_event);
+
+            click_event.pressed.connect (() => {
+                on_secondary_click(lbrow);
+            });
+            drag_event.drag_begin.connect (() => {
+                on_drag_begin(drag_event, lbrow);
+            });
 
             return lbrow;
         }
@@ -227,61 +219,58 @@ namespace Taxi {
             }
         }
 
-        private bool on_ebr_button_press (
-            Gdk.EventButton event,
-            Gtk.EventBox event_box,
-            Gtk.ListBoxRow list_box_row
+        private void on_secondary_click (
+            Gtk.Widget widget
         ) {
-            if (event.button == Gdk.BUTTON_SECONDARY) {
-                list_box.select_row (list_box_row);
-                event_box.popup_menu ();
-            }
-            return false;
-        }
+            var uri = widget.get_data<Soup.URI> ("uri");
+            var type = widget.get_data<FileType> ("type");
 
+            var model = new Menu ();
+            var open_item = new MenuItem (_("Open"), null);
 
-        private bool on_ebr_popup_menu (Gtk.EventBox event_box) {
-            var uri = new Soup.URI.with_base (
-                current_uri,
-                event_box.get_data<string> ("name")
-            );
-            var type = event_box.get_data<FileType> ("type");
-            var menu = new Gtk.Menu ();
+            var delete_item = new MenuItem (_("Delete"), null);
+            string open_action = "win.open-local";
+            string delete_action = "win.delete-local";
+
             if (type == FileType.DIRECTORY) {
-                menu.add (new_menu_item (_("Open"), u => navigate (u), uri));
-            } else {
-                menu.add (new_menu_item (_("Open"), u => open (u), uri));
-                //menu.add (new_menu_item ("Edit", u => edit (u), uri));
+                open_action = "win.navigate-local";
             }
-            menu.add (new Gtk.SeparatorMenuItem ());
-            menu.add (new_menu_item (_("Delete"), u => @delete (u), uri));
-            //add_menu_item ("Rename", menu, u => rename (u), uri);
-            menu.show_all ();
-            menu.attach_to_widget (event_box, null);
-            menu.popup_at_pointer (null);
-            menu.deactivate.connect (() => list_box.select_row (null));
-            return true;
-        }
+            if (location == Location.REMOTE) {
+                delete_action = "win.delete-remote";
+                if (type == FileType.DIRECTORY) {
+                    open_action = "win.navigate-remote";
+                } else {
+                    open_action = "win.open-remote";
+                }
+            }
 
-        private Gtk.MenuItem new_menu_item (
-            string label,
-            ActivateFunc activate_fn,
-            Soup.URI uri
-        ) {
-            var menu_item = new Gtk.MenuItem.with_label (label);
-            menu_item.activate.connect (() => activate_fn (uri));
-            return menu_item;
+            open_item.set_action_and_target_value(
+                open_action,
+                uri.to_string (false)
+            );
+            delete_item.set_action_and_target_value(
+                delete_action,
+                uri.to_string (false)
+            );
+
+            model.append_item (open_item);
+            model.append_item (delete_item);
+
+            var menu = new Gtk.PopoverMenu.from_model (model);
+            menu.set_parent (widget);
+            menu.popup ();
         }
 
         public void update_pathbar (Soup.URI uri) {
             current_uri = uri;
             path_bar.set_path (uri);
-            path_bar.show_all ();
         }
 
-        private void clear_children (Gtk.Container container) {
-            foreach (Gtk.Widget child in container.get_children ()) {
-                container.remove (child);
+        private void clear_children (Gtk.ListBox list) {
+            var row = list.get_row_at_index (0);
+            while (row != null) {
+                list.remove (row);
+                row = list.get_row_at_index (0);
             }
         }
 
@@ -303,70 +292,55 @@ namespace Taxi {
             return "%.3g %s".printf (floatbytes, measurement [i]);
         }
 
-        private void on_drag_begin (Gtk.Widget widget, Gdk.DragContext context) {
-            var widget_window = widget.get_window ();
-            var pixbuf = Gdk.pixbuf_get_from_window (
-                widget_window,
-                0,
-                0,
-                widget_window.get_width (),
-                widget_window.get_height ()
-            );
-            Gtk.drag_set_icon_pixbuf (context, pixbuf, 0, 0);
+        private void on_drag_begin (
+            Gtk.DragSource source,
+            Gtk.Widget row
+        ) {
+            var paintable = new Gtk.WidgetPaintable (row);
+            source.set_icon (paintable, 0, 0);
         }
 
         private bool on_drag_drop (
-            Gtk.Widget widget,
-            Gdk.DragContext context,
-            int x,
-            int y,
-            uint time
+            Gtk.DropTarget target,
+            GLib.Value value,
+            double x,
+            double y
         ) {
-            var target_type = (Gdk.Atom) context.list_targets ().nth_data (Target.URI_LIST);
-            Gtk.drag_get_data (widget, context, target_type, time);
-            return true;
+            if (value.type () == typeof (Gdk.FileList)) {
+                var files = ((Gdk.FileList)value).get_files();
+
+                files.@foreach ((file) => {
+                    file_dragged ((string) file.get_uri ());
+                });
+                return true;
+            }
+            return false;
         }
 
-        private void on_drag_data_get (
-            Gtk.Widget widget,
-            Gdk.DragContext context,
-            Gtk.SelectionData selection_data,
-            uint target_type,
-            uint time
-        ) {
-            string file_name = widget.get_data ("name");
-            string file_uri = current_uri.to_string (false) + "/" + file_name;
-            switch (target_type) {
-                case Target.URI_LIST:
-                    selection_data.set_uris ({ file_uri });
-                    break;
-                case Target.STRING:
-                    selection_data.set_uris ({ file_uri });
-                    break;
-                default:
-                    assert_not_reached ();
+        private void navigate(Soup.URI uri) {
+            var app = (Gtk.Application) Application.get_default ();
+            var window = (Gtk.ApplicationWindow) app.get_active_window ();
+
+            string action_name = "navigate-local";
+            if (location == Location.REMOTE) {
+                action_name = "navigate-remote";
             }
+
+            var action = (SimpleAction) window.lookup_action (action_name);
+            action.activate (uri.to_string (false));
         }
 
-        private void on_drag_data_received (
-            Gtk.Widget widget,
-            Gdk.DragContext context,
-            int x,
-            int y,
-            Gtk.SelectionData selection_data,
-            uint target_type,
-            uint time
-        ) {
-            switch (target_type) {
-                case Target.URI_LIST:
-                    file_dragged ((string) selection_data.get_data ());
-                    break;
-                case Target.STRING:
-                    break;
-                default:
-                    message ("Data received not accepted");
-                    break;
+        private void open(Soup.URI uri) {
+            var app = (Gtk.Application) Application.get_default ();
+            var window = (Gtk.ApplicationWindow) app.get_active_window ();
+
+            string action_name = "open-local";
+            if (location == Location.REMOTE) {
+                action_name = "open-remote";
             }
+
+            var action = (SimpleAction) window.lookup_action (action_name);
+            action.activate (uri.to_string (false));
         }
     }
 }

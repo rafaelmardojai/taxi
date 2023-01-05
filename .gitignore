@@ -1,7 +1,9 @@
 .snapcraft
 .vscode
+.flatpak
 src/config.vala
 build/
+_build/
 parts/
 prime/
 stage/

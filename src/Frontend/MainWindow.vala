@@ -14,24 +14,27 @@
   with program. If not, see <http://www.gnu.org/licenses>
 ***/
 
-class Taxi.MainWindow : Hdy.ApplicationWindow {
+class Taxi.MainWindow : Adw.ApplicationWindow {
     public IConnectionSaver conn_saver { get; construct; }
     public IFileOperations file_operation { get; construct; }
     public IFileAccess local_access { get; construct; }
     public IFileAccess remote_access { get; construct; }
 
-    private Granite.Widgets.Toast toast;
+    private Adw.ToastOverlay toasts;
     private Gtk.Revealer spinner_revealer;
-    private Gtk.Grid bookmark_list;
-    private Gtk.Grid outer_box;
+    private Gtk.ListBox bookmark_list;
+    private Gtk.Box outer_box;
     private Gtk.MenuButton bookmark_menu_button;
     private Gtk.Stack alert_stack;
     private ConnectBox connect_box;
-    private Granite.Widgets.Welcome welcome;
+    private Adw.StatusPage welcome;
     private FilePane local_pane;
     private FilePane remote_pane;
     private Soup.URI conn_uri;
     private GLib.Settings saved_state;
+    private Gtk.EventControllerKey key_controller;
+    private int overwrite_response = 0;
+    private bool overwrite_done = false;
 
     public MainWindow (
         Gtk.Application application,
@@ -50,8 +53,6 @@ class Taxi.MainWindow : Hdy.ApplicationWindow {
     }
 
     construct {
-        Hdy.init ();
-
         connect_box = new ConnectBox ();
         connect_box.valign = Gtk.Align.CENTER;
 
@@ -63,107 +64,96 @@ class Taxi.MainWindow : Hdy.ApplicationWindow {
         var operations_button = new Gtk.MenuButton ();
         operations_button.popover = popover;
         operations_button.valign = Gtk.Align.CENTER;
-        operations_button.get_style_context ().add_class (Gtk.STYLE_CLASS_FLAT);
-        operations_button.add (spinner);
+        operations_button.add_css_class ("flat");
+        operations_button.set_child (spinner);
 
         spinner_revealer = new Gtk.Revealer ();
         spinner_revealer.transition_type = Gtk.RevealerTransitionType.SLIDE_RIGHT;
-        spinner_revealer.add (operations_button);
+        spinner_revealer.set_child (operations_button);
 
-        bookmark_list = new Gtk.Grid ();
-        bookmark_list.margin_top = bookmark_list.margin_bottom = 3;
-        bookmark_list.orientation = Gtk.Orientation.VERTICAL;
-
-        var bookmark_scrollbox = new Gtk.ScrolledWindow (null, null);
+        var bookmark_scrollbox = new Gtk.ScrolledWindow ();
         bookmark_scrollbox.hscrollbar_policy = Gtk.PolicyType.NEVER;
         bookmark_scrollbox.max_content_height = 500;
         bookmark_scrollbox.propagate_natural_height = true;
-        bookmark_scrollbox.add (bookmark_list);
-        bookmark_scrollbox.show ();
 
-        var bookmark_popover = new Gtk.Popover (null);
-        bookmark_popover.add (bookmark_scrollbox);
+        var bookmark_popover = new Gtk.Popover ();
+        bookmark_popover.add_css_class ("menu");
+        bookmark_popover.set_child (bookmark_scrollbox);
+
+        bookmark_list = new Gtk.ListBox ();
+        bookmark_list.margin_top = bookmark_list.margin_bottom = 3;
+        bookmark_list.selection_mode = Gtk.SelectionMode.NONE;
+        bookmark_list.row_activated.connect ((row) => {
+            var uri = row.get_data<string> ("uri");
+            connect_box.go_to_uri (uri);
+            bookmark_popover.hide ();
+        });
+        bookmark_scrollbox.set_child (bookmark_list);
 
         bookmark_menu_button = new Gtk.MenuButton ();
-        bookmark_menu_button.image = new Gtk.Image.from_icon_name ("user-bookmarks", Gtk.IconSize.LARGE_TOOLBAR);
+        bookmark_menu_button.icon_name = "user-bookmarks-symbolic";
         bookmark_menu_button.popover = bookmark_popover;
         bookmark_menu_button.tooltip_text = _("Access Bookmarks");
 
         update_bookmark_menu ();
 
-        var header_bar = new Hdy.HeaderBar () {
-            custom_title = new Gtk.Label (null),
-            show_close_button = true
-        };
-        header_bar.pack_start (connect_box);
-        header_bar.pack_start (spinner_revealer);
-        header_bar.pack_start (bookmark_menu_button);
+        var header_bar = new Adw.HeaderBar ();
+        var header_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6);
+        header_box.append (connect_box);
+        header_box.append (spinner_revealer);
+        header_box.append (bookmark_menu_button);
+        header_bar.set_title_widget (header_box);
 
-        welcome = new Granite.Widgets.Welcome (
-            _("Connect"),
-            _("Type a URL and press 'Enter' to\nconnect to a server.")
-        );
+        welcome = new Adw.StatusPage ();
+        welcome.title = _("Connect");
+        welcome.description =  _("Type a URL and press 'Enter' to connect to a server.");
         welcome.vexpand = true;
 
         local_pane = new FilePane ();
-        local_pane.open.connect (on_local_open);
-        local_pane.navigate.connect (on_local_navigate);
+        local_pane.location = Location.LOCAL;
         local_pane.file_dragged.connect (on_local_file_dragged);
         local_pane.transfer.connect (on_remote_file_dragged);
-        local_pane.@delete.connect (on_local_file_delete);
         local_access.directory_changed.connect (() => update_pane (Location.LOCAL));
 
         remote_pane = new FilePane ();
-        remote_pane.open.connect (on_remote_open);
-        remote_pane.navigate.connect (on_remote_navigate);
+        remote_pane.location = Location.REMOTE;
         remote_pane.file_dragged.connect (on_remote_file_dragged);
         remote_pane.transfer.connect (on_local_file_dragged);
-        remote_pane.@delete.connect (on_remote_file_delete);
 
-        outer_box = new Gtk.Grid ();
-        outer_box.add (local_pane);
-        outer_box.add (new Gtk.Separator (Gtk.Orientation.VERTICAL));
-        outer_box.add (remote_pane);
+        outer_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0);
+        outer_box.append (local_pane);
+        outer_box.append (new Gtk.Separator (Gtk.Orientation.VERTICAL));
+        outer_box.append (remote_pane);
 
         var size_group = new Gtk.SizeGroup (Gtk.SizeGroupMode.HORIZONTAL);
         size_group.add_widget (local_pane);
         size_group.add_widget (remote_pane);
 
         alert_stack = new Gtk.Stack ();
-        alert_stack.add (welcome);
-        alert_stack.add (outer_box);
+        alert_stack.add_child (welcome);
+        alert_stack.add_child (outer_box);
 
-        toast = new Granite.Widgets.Toast ("");
-
-        var overlay = new Gtk.Overlay ();
-        overlay.add (alert_stack);
-        overlay.add_overlay (toast);
+        toasts = new Adw.ToastOverlay ();
+        toasts.set_child (alert_stack);
 
         var grid = new Gtk.Grid ();
         grid.attach (header_bar, 0, 0);
-        grid.attach (overlay, 0, 1);
+        grid.attach (toasts, 0, 1);
 
-        add (grid);
+        set_content (grid);
 
         saved_state = new GLib.Settings ("com.github.alecaddd.taxi.state");
 
-        var window_x = saved_state.get_int ("opening-x");
-        var window_y = saved_state.get_int ("opening-y");
+        saved_state.bind ("window-width", this,
+                   "default-width", SettingsBindFlags.DEFAULT);
+        saved_state.bind ("window-height", this,
+                    "default-height", SettingsBindFlags.DEFAULT);
+        saved_state.bind ("maximized", this,
+                    "maximized", SettingsBindFlags.DEFAULT);
 
-        if (window_x != -1 ||  window_y != -1) {
-            move (window_x, window_y);
-        }
+        key_controller = new Gtk.EventControllerKey ();
 
-        default_height = saved_state.get_int ("window-height");
-        default_width = saved_state.get_int ("window-width");
-
-        if (saved_state.get_boolean ("maximized")) {
-            maximize ();
-        }
-
-        var provider = new Gtk.CssProvider ();
-        provider.load_from_resource ("com/github/alecaddd/taxi/Application.css");
-        Gtk.StyleContext.add_provider_for_screen (Gdk.Screen.get_default (), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        key_controller.key_pressed.connect (connect_box.on_key_press_event);
 
         connect_box.connect_initiated.connect (on_connect_initiated);
         connect_box.ask_hostname.connect (on_ask_hostname);
@@ -173,10 +163,50 @@ class Taxi.MainWindow : Hdy.ApplicationWindow {
         file_operation.operation_removed.connect (popover.remove_operation);
         file_operation.ask_overwrite.connect (on_ask_overwrite);
 
-        key_press_event.connect (connect_box.on_key_press_event);
-
         popover.operations_pending.connect (show_spinner);
         popover.operations_finished.connect (hide_spinner);
+
+        var open_local_action = new SimpleAction ("open-local", new VariantType("s"));
+        open_local_action.activate.connect ( (action, value) => {
+            var uri = new Soup.URI (value.get_string ());
+            local_access.open_file (uri);
+        });
+        add_action (open_local_action);
+
+        var navigate_local_action = new SimpleAction ("navigate-local", null);
+        navigate_local_action.activate.connect ( (value) => {
+            var uri = new Soup.URI (value.get_string ());
+            navigate (uri, local_access, Location.LOCAL);
+        });
+        add_action (navigate_local_action);
+
+        var delete_local_action = new SimpleAction ("delete-local", new VariantType("s"));
+        delete_local_action.activate.connect ( (value) => {
+            var uri = new Soup.URI (value.get_string ());
+            file_delete (uri, Location.LOCAL);
+        });
+        add_action (delete_local_action);
+
+        var open_remote_action = new SimpleAction ("open-remote", new VariantType("s"));
+        open_remote_action.activate.connect ( (value) => {
+            var uri = new Soup.URI (value.get_string ());
+            remote_access.open_file (uri);
+        });
+        add_action (open_remote_action);
+
+        var navigate_remote_action = new SimpleAction ("navigate-remote", new VariantType("s"));
+        navigate_remote_action.activate.connect ( (value) => {
+            var uri = new Soup.URI (value.get_string ());
+            navigate (uri, remote_access, Location.REMOTE);
+        });
+        add_action (navigate_remote_action);
+
+        var delete_remote_action = new SimpleAction ("delete-remote", new VariantType("s"));
+        delete_remote_action.activate.connect ( (value) => {
+            var uri = new Soup.URI (value.get_string ());
+            file_delete (uri, Location.REMOTE);
+        });
+        add_action (delete_remote_action);
     }
 
     private void on_connect_initiated (Soup.URI uri) {
@@ -185,7 +215,7 @@ class Taxi.MainWindow : Hdy.ApplicationWindow {
             if (remote_access.connect_to_device.end (res)) {
                 alert_stack.visible_child = outer_box;
                 if (local_pane == null) {
-                    key_press_event.disconnect (connect_box.on_key_press_event);
+                    key_controller.key_pressed.disconnect (connect_box.on_key_press_event);
                 }
                 update_pane (Location.LOCAL);
                 update_pane (Location.REMOTE);
@@ -223,8 +253,10 @@ class Taxi.MainWindow : Hdy.ApplicationWindow {
     }
 
     private void update_bookmark_menu () {
-        foreach (Gtk.Widget child in bookmark_list.get_children ()) {
-            child.destroy ();
+        var row = bookmark_list.get_row_at_index (0);
+        while (row != null) {
+            bookmark_list.remove (row);
+            row = bookmark_list.get_row_at_index (0);
         }
 
         var uri_list = conn_saver.get_saved_conns ();
@@ -232,34 +264,16 @@ class Taxi.MainWindow : Hdy.ApplicationWindow {
             bookmark_menu_button.sensitive = false;
         } else {
             foreach (string uri in uri_list) {
-                var bookmark_item = new Gtk.ModelButton ();
-                bookmark_item.text = uri;
+                var bookmark_item = new Gtk.ListBoxRow ();
+                var label = new Gtk.Label (uri);
+                bookmark_item.set_child (label);
+                bookmark_item.set_data ("uri", uri);
+                bookmark_item.activatable = true;
 
-                bookmark_list.add (bookmark_item);
-
-                bookmark_item.clicked.connect (() => {
-                    connect_box.go_to_uri (uri);
-                });
+                bookmark_list.append (bookmark_item);
             }
-            bookmark_list.show_all ();
             bookmark_menu_button.sensitive = true;
         }
-    }
-
-    private void on_local_navigate (Soup.URI uri) {
-        navigate (uri, local_access, Location.LOCAL);
-    }
-
-    private void on_local_open (Soup.URI uri) {
-        local_access.open_file (uri);
-    }
-
-    private void on_remote_navigate (Soup.URI uri) {
-        navigate (uri, remote_access, Location.REMOTE);
-    }
-
-    private void on_remote_open (Soup.URI uri) {
-        remote_access.open_file (uri);
     }
 
     private void on_remote_file_dragged (string uri) {
@@ -268,14 +282,6 @@ class Taxi.MainWindow : Hdy.ApplicationWindow {
 
     private void on_local_file_dragged (string uri) {
         file_dragged (uri, Location.LOCAL, local_access);
-    }
-
-    private void on_local_file_delete (Soup.URI uri) {
-        file_delete (uri, Location.LOCAL);
-    }
-
-    private void on_remote_file_delete (Soup.URI uri) {
-        file_delete (uri, Location.REMOTE);
     }
 
     private void navigate (Soup.URI uri, IFileAccess file_access, Location pane) {
@@ -300,8 +306,8 @@ class Taxi.MainWindow : Hdy.ApplicationWindow {
                     file_operation.copy_recursive.end (res);
                     update_pane (pane);
                 } catch (Error e) {
-                    toast.title = e.message;
-                    toast.send_notification ();
+                    var toast = new Adw.Toast(e.message);
+                    toasts.add_toast (toast);
                 }
             }
          );
@@ -317,8 +323,8 @@ class Taxi.MainWindow : Hdy.ApplicationWindow {
                     file_operation.delete_recursive.end (res);
                     update_pane (pane);
                 } catch (Error e) {
-                    toast.title = e.message;
-                    toast.send_notification ();
+                    var toast = new Adw.Toast(e.message);
+                    toasts.add_toast (toast);
                 }
             }
         );
@@ -366,30 +372,23 @@ class Taxi.MainWindow : Hdy.ApplicationWindow {
         dialog.add_button (_("Replace All Conflicts"), 2);
         dialog.add_button (_("Skip"), 0);
         dialog.add_button (_("Replace"), 1);
-        dialog.get_widget_for_response (1).get_style_context ().add_class ("suggested-action");
+        dialog.get_widget_for_response (1).add_css_class ("suggested-action");
 
-        var response = dialog.run ();
-        dialog.destroy ();
-        return response;
-    }
+        dialog.response.connect (on_overwrite_response);
 
-    public override bool configure_event (Gdk.EventConfigure event) {
-        if (is_maximized) {
-            saved_state.set_boolean ("maximized", true);
-        } else {
-            saved_state.set_boolean ("maximized", false);
+        dialog.present ();
 
-            int window_width, window_height;
-            get_size (out window_width, out window_height);
-            saved_state.set_int ("window-height", window_height);
-            saved_state.set_int ("window-width", window_width);
-
-            int x_pos, y_pos;
-            get_position (out x_pos, out y_pos);
-            saved_state.set_int ("opening-x", x_pos);
-            saved_state.set_int ("opening-y", y_pos);
+        while (!overwrite_done) {
+            MainContext.@default ().iteration (true);
         }
 
-        return base.configure_event (event);
+        overwrite_done = false;
+        return overwrite_response;
+    }
+
+    private void on_overwrite_response(Gtk.Dialog dialog, int response) {
+        overwrite_response = response;
+        overwrite_done = true;
+        dialog.destroy ();
     }
 }

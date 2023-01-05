@@ -15,7 +15,7 @@
 ***/
 
 namespace Taxi {
-    class PathBar : Gtk.Grid {
+    class PathBar : Gtk.Box {
         public bool transfer_button_sensitive { get; set; }
 
         private Soup.URI current_uri;
@@ -28,11 +28,11 @@ namespace Taxi {
         }
 
         class construct {
-            set_css_name (Gtk.STYLE_CLASS_BUTTON);
+            set_css_name ("button");
         }
 
         construct {
-            get_style_context ().add_class ("pathbar");
+            add_css_class ("pathbar");
         }
 
         private string concat_until (string[] words, int n) {
@@ -47,27 +47,26 @@ namespace Taxi {
             var button = new Gtk.Button ();
 
             if (path == "/") {
-                button.image = new Gtk.Image.from_icon_name (child, Gtk.IconSize.MENU);
+                button.icon_name = child;
             } else {
                 var label = new Gtk.Label (child);
                 label.ellipsize = Pango.EllipsizeMode.MIDDLE;
 
                 button.tooltip_text = child;
-                button.add (label);
+                button.set_child (label);
 
                 var sep = new PathBarSeparator ();
-                add (sep);
+                append (sep);
             }
 
-            var button_style_context = button.get_style_context ();
-            button_style_context.add_class (Gtk.STYLE_CLASS_FLAT);
-            button_style_context.add_class ("path-button");
+            button.add_css_class ("flat");
+            button.add_css_class ("path-button");
 
             button.clicked.connect (() => {
                 current_uri.set_path (path);
                 navigate (current_uri);
             });
-            add (button);
+            append (button);
         }
 
         public void set_path (Soup.URI uri) {
@@ -78,28 +77,28 @@ namespace Taxi {
             switch (scheme) {
                 case "file":
                     add_path_frag ("drive-harddisk-symbolic", "/");
-                    transfer_icon_name = "document-export-symbolic";
+                    transfer_icon_name = "document-send-symbolic";
                     break;
                 case "ftp":
                 case "sftp":
                 default:
                     add_path_frag ("folder-remote-symbolic", "/");
-                    transfer_icon_name = "document-import-symbolic";
+                    transfer_icon_name = "document-save-symbolic";
                     break;
             }
             set_path_helper (uri.get_path ());
 
-            var transfer_button = new Gtk.Button.from_icon_name (transfer_icon_name, Gtk.IconSize.MENU);
+            var transfer_button = new Gtk.Button.from_icon_name (transfer_icon_name);
             transfer_button.halign = Gtk.Align.END;
             transfer_button.hexpand = true;
             transfer_button.sensitive = false;
             transfer_button.tooltip_text = _("Transfer");
             transfer_button.bind_property ("sensitive", this, "transfer-button-sensitive", GLib.BindingFlags.BIDIRECTIONAL);
-            transfer_button.get_style_context ().add_class (Gtk.STYLE_CLASS_FLAT);
+            transfer_button.add_css_class ("flat");
 
             transfer_button.clicked.connect (() => transfer ());
 
-            add (transfer_button);
+            append (transfer_button);
         }
 
         private void set_path_helper (string path) {
@@ -112,10 +111,16 @@ namespace Taxi {
         }
 
         private void clear_path () {
-            foreach (Gtk.Widget child in get_children ()) {
-                remove (child);
+            var child = get_first_child ();
+            while (child != null) {
+                var item = child;
+                child = child.get_next_sibling ();
+                remove (item);
             }
-            margin = 0;
+            margin_top = 0;
+            margin_bottom = 0;
+            margin_start = 0;
+            margin_end = 0;
         }
     }
 }

@@ -15,7 +15,7 @@
 ***/
 
 namespace Taxi {
-    public class ConnectBox : Gtk.Grid {
+    public class ConnectBox : Gtk.Box {
         private Gtk.ComboBoxText protocol_combobox;
         private Gtk.Entry path_entry;
         private ulong? handler;
@@ -40,15 +40,19 @@ namespace Taxi {
             path_entry.hexpand = true;
             path_entry.max_width_chars = 10000;
 
+            var focus = new Gtk.EventControllerFocus ();
+            path_entry.add_controller (focus);
+
             orientation = Gtk.Orientation.HORIZONTAL;
-            add (protocol_combobox);
-            add (path_entry );
-            get_style_context ().add_class (Gtk.STYLE_CLASS_LINKED);
+            append (protocol_combobox);
+            append (path_entry );
+            add_css_class ("linked");
 
             path_entry.activate.connect (submit_form);
             path_entry.changed.connect (on_changed);
-            path_entry.focus_out_event.connect (on_focus_out);
-            path_entry.grab_focus.connect_after (on_grab_focus);
+
+            focus.leave.connect (on_focus_out);
+            focus.enter.connect_after (on_grab_focus);
         }
 
         private void submit_form () {
@@ -78,7 +82,7 @@ namespace Taxi {
             }
         }
 
-        private bool on_focus_out () {
+        private void on_focus_out (Gtk.EventControllerFocus ctrl) {
             if (path_entry.get_text () == "" && show_fav_icon) {
                 var uri_reply = ask_hostname ();
                 // TODO: Handle text changes in a less lazy way
@@ -86,7 +90,6 @@ namespace Taxi {
                 path_entry.set_text (uri_reply.to_string (false));
                 path_entry.changed.connect (this.on_changed);
             }
-            return false;
         }
 
         private void hide_host_icon () {
@@ -136,14 +139,14 @@ namespace Taxi {
             });
         }
 
-        public bool on_key_press_event (Gdk.EventKey event) {
+        public bool on_key_press_event (Gtk.EventControllerKey ctrl, uint keyval, uint keycode, Gdk.ModifierType state) {
             if (!path_entry.has_visible_focus ()) {
                 path_entry.grab_focus ();
             }
             return false;
         }
 
-        private void on_grab_focus () {
+        private void on_grab_focus (Gtk.EventControllerFocus ctrl) {
             path_entry.select_region (0, 0);
             path_entry.set_position (-1);
         }

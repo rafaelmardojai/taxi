@@ -24,10 +24,10 @@ executable(
     dependencies: [
         dependency('glib-2.0'),
         dependency('gobject-2.0'),
-        dependency('granite', version: '>=6.0.0'),
-        dependency('gtk+-3.0', version: '>=3.22'),
-        dependency('libhandy-1'),
+        dependency('libadwaita-1', version: '>=1.2'),
+        dependency('gtk4', version: '>=4.6'),
         dependency('libsoup-2.4'),
+        dependency('gee-0.8'),
         meson.get_compiler('vala').find_library('posix', required : false)
     ],
     install : true
