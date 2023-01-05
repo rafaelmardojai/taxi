@@ -27,6 +27,7 @@ namespace Taxi {
         private Gtk.ListBox list_box;
         private Gtk.Stack stack;
         private Gtk.DropTarget drop_target;
+        private bool self_drag = false;
 
         public Location location;
 
@@ -78,6 +79,7 @@ namespace Taxi {
 
             drop_target = new Gtk.DropTarget (typeof (Gdk.FileList), Gdk.DragAction.COPY);
             drop_target.on_drop.connect (on_drag_drop);
+            drop_target.accept.connect (on_drag_accept);
             list_box.add_controller (drop_target);
 
             list_box.row_activated.connect ((row) => {
@@ -195,10 +197,6 @@ namespace Taxi {
             lbrow.add_controller (click_event);
 
             var drag_event = new Gtk.DragSource ();
-
-            var file = File.new_for_uri(uri.to_string (false));
-            var drag_content = new Gdk.ContentProvider.for_value (file);
-            drag_event.set_content (drag_content);
             lbrow.add_controller (drag_event);
 
             click_event.pressed.connect (() => {
@@ -206,6 +204,15 @@ namespace Taxi {
             });
             drag_event.drag_begin.connect (() => {
                 on_drag_begin(drag_event, lbrow);
+            });
+            drag_event.prepare.connect (() => {
+                self_drag = true;
+                var file = File.new_for_uri(uri.to_string (false));
+                var drag_content = new Gdk.ContentProvider.for_value (file);
+                return drag_content;
+            });
+            drag_event.drag_end.connect (() => {
+                self_drag = false;
             });
 
             return lbrow;
@@ -298,6 +305,17 @@ namespace Taxi {
         ) {
             var paintable = new Gtk.WidgetPaintable (row);
             source.set_icon (paintable, 0, 0);
+        }
+
+        private bool on_drag_accept(
+            Gtk.DropTarget target,
+            Gdk.Drop drop
+        ) {
+            /* Avoid self drag */
+            if (self_drag) {
+                return false;
+            }
+            return true;
         }
 
         private bool on_drag_drop (
