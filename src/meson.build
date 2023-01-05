@@ -26,7 +26,7 @@ executable(
         dependency('gobject-2.0'),
         dependency('libadwaita-1', version: '>=1.2'),
         dependency('gtk4', version: '>=4.6'),
-        dependency('libsoup-2.4'),
+        dependency('libsoup-3.0'),
         dependency('gee-0.8'),
         meson.get_compiler('vala').find_library('posix', required : false)
     ],

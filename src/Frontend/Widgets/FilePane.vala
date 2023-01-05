@@ -22,7 +22,7 @@ namespace Taxi {
     }
 
     class FilePane : Gtk.Box {
-        private Soup.URI current_uri;
+        private Uri current_uri;
         private PathBar path_bar;
         private Gtk.ListBox list_box;
         private Gtk.Stack stack;
@@ -33,10 +33,10 @@ namespace Taxi {
 
         public signal void file_dragged (string uri);
         public signal void transfer (string uri);
-        public signal void rename (Soup.URI uri);
-        public signal void edit (Soup.URI uri);
+        public signal void rename (Uri uri);
+        public signal void edit (Uri uri);
 
-        delegate void ActivateFunc (Soup.URI uri);
+        delegate void ActivateFunc (Uri uri);
 
         construct {
             path_bar = new PathBar ();
@@ -83,7 +83,7 @@ namespace Taxi {
             list_box.add_controller (drop_target);
 
             list_box.row_activated.connect ((row) => {
-                var uri = row.get_data<Soup.URI> ("uri");
+                var uri = row.get_data<Uri> ("uri");
                 var type = row.get_data<FileType> ("type");
                 if (type == FileType.DIRECTORY) {
                     navigate (uri);
@@ -109,7 +109,7 @@ namespace Taxi {
             var row = list_box.get_first_child ();
             while (row != null) {
                 if (row.get_data<Gtk.CheckButton> ("checkbutton").get_active ()) {
-                    uri_list.add (current_uri.to_string (false) + "/" + row.get_data<string> ("name"));
+                    uri_list.add (current_uri.to_string_partial (UriHideFlags.NONE) + "/" + row.get_data<string> ("name"));
                 }
                 row = row.get_next_sibling ();
             }
@@ -181,7 +181,7 @@ namespace Taxi {
                 row.append (size);
             }
 
-            var uri = new Soup.URI.with_base (current_uri, file_info.get_name ());
+            var uri = Uri.parse_relative (current_uri, file_info.get_name (), UriFlags.NONE);
 
             var lbrow = new Gtk.ListBoxRow ();
             lbrow.hexpand = true;
@@ -207,7 +207,7 @@ namespace Taxi {
             });
             drag_event.prepare.connect (() => {
                 self_drag = true;
-                var file = File.new_for_uri(uri.to_string (false));
+                var file = File.new_for_uri(uri.to_string_partial (UriHideFlags.NONE));
                 var drag_content = new Gdk.ContentProvider.for_value (file);
                 return drag_content;
             });
@@ -229,7 +229,7 @@ namespace Taxi {
         private void on_secondary_click (
             Gtk.Widget widget
         ) {
-            var uri = widget.get_data<Soup.URI> ("uri");
+            var uri = widget.get_data<Uri> ("uri");
             var type = widget.get_data<FileType> ("type");
 
             var model = new Menu ();
@@ -253,11 +253,11 @@ namespace Taxi {
 
             open_item.set_action_and_target_value(
                 open_action,
-                uri.to_string (false)
+                uri.to_string_partial (UriHideFlags.NONE)
             );
             delete_item.set_action_and_target_value(
                 delete_action,
-                uri.to_string (false)
+                uri.to_string_partial (UriHideFlags.NONE)
             );
 
             model.append_item (open_item);
@@ -268,7 +268,7 @@ namespace Taxi {
             menu.popup ();
         }
 
-        public void update_pathbar (Soup.URI uri) {
+        public void update_pathbar (Uri uri) {
             current_uri = uri;
             path_bar.set_path (uri);
         }
@@ -335,7 +335,7 @@ namespace Taxi {
             return false;
         }
 
-        private void navigate(Soup.URI uri) {
+        private void navigate(Uri uri) {
             var app = (Gtk.Application) Application.get_default ();
             var window = (Gtk.ApplicationWindow) app.get_active_window ();
 
@@ -345,10 +345,10 @@ namespace Taxi {
             }
 
             var action = (SimpleAction) window.lookup_action (action_name);
-            action.activate (uri.to_string (false));
+            action.activate (uri.to_string_partial (UriHideFlags.NONE));
         }
 
-        private void open(Soup.URI uri) {
+        private void open(Uri uri) {
             var app = (Gtk.Application) Application.get_default ();
             var window = (Gtk.ApplicationWindow) app.get_active_window ();
 
@@ -358,7 +358,7 @@ namespace Taxi {
             }
 
             var action = (SimpleAction) window.lookup_action (action_name);
-            action.activate (uri.to_string (false));
+            action.activate (uri.to_string_partial (UriHideFlags.NONE));
         }
     }
 }

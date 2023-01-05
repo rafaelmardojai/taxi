@@ -30,7 +30,7 @@ class Taxi.MainWindow : Adw.ApplicationWindow {
     private Adw.StatusPage welcome;
     private FilePane local_pane;
     private FilePane remote_pane;
-    private Soup.URI conn_uri;
+    private Uri conn_uri;
     private GLib.Settings saved_state;
     private Gtk.EventControllerKey key_controller;
     private int overwrite_response = 0;
@@ -168,48 +168,48 @@ class Taxi.MainWindow : Adw.ApplicationWindow {
 
         var open_local_action = new SimpleAction ("open-local", new VariantType("s"));
         open_local_action.activate.connect ( (action, value) => {
-            var uri = new Soup.URI (value.get_string ());
+            var uri = Uri.parse (value.get_string (), UriFlags.NONE);
             local_access.open_file (uri);
         });
         add_action (open_local_action);
 
         var navigate_local_action = new SimpleAction ("navigate-local", null);
         navigate_local_action.activate.connect ( (value) => {
-            var uri = new Soup.URI (value.get_string ());
+            var uri = Uri.parse (value.get_string (), UriFlags.NONE);
             navigate (uri, local_access, Location.LOCAL);
         });
         add_action (navigate_local_action);
 
         var delete_local_action = new SimpleAction ("delete-local", new VariantType("s"));
         delete_local_action.activate.connect ( (value) => {
-            var uri = new Soup.URI (value.get_string ());
+            var uri = Uri.parse (value.get_string (), UriFlags.NONE);
             file_delete (uri, Location.LOCAL);
         });
         add_action (delete_local_action);
 
         var open_remote_action = new SimpleAction ("open-remote", new VariantType("s"));
         open_remote_action.activate.connect ( (value) => {
-            var uri = new Soup.URI (value.get_string ());
+            var uri = Uri.parse (value.get_string (), UriFlags.NONE);
             remote_access.open_file (uri);
         });
         add_action (open_remote_action);
 
         var navigate_remote_action = new SimpleAction ("navigate-remote", new VariantType("s"));
         navigate_remote_action.activate.connect ( (value) => {
-            var uri = new Soup.URI (value.get_string ());
+            var uri = Uri.parse (value.get_string (), UriFlags.NONE);
             navigate (uri, remote_access, Location.REMOTE);
         });
         add_action (navigate_remote_action);
 
         var delete_remote_action = new SimpleAction ("delete-remote", new VariantType("s"));
         delete_remote_action.activate.connect ( (value) => {
-            var uri = new Soup.URI (value.get_string ());
+            var uri = Uri.parse (value.get_string (), UriFlags.NONE);
             file_delete (uri, Location.REMOTE);
         });
         add_action (delete_remote_action);
     }
 
-    private void on_connect_initiated (Soup.URI uri) {
+    private void on_connect_initiated (Uri uri) {
         show_spinner ();
         remote_access.connect_to_device.begin (uri, this, (obj, res) => {
             if (remote_access.connect_to_device.end (res)) {
@@ -220,12 +220,12 @@ class Taxi.MainWindow : Adw.ApplicationWindow {
                 update_pane (Location.LOCAL);
                 update_pane (Location.REMOTE);
                 connect_box.show_favorite_icon (
-                    conn_saver.is_bookmarked (remote_access.get_uri ().to_string (false))
+                    conn_saver.is_bookmarked (remote_access.get_uri ().to_string_partial (UriHideFlags.NONE))
                 );
                 conn_uri = uri;
             } else {
                 alert_stack.visible_child = welcome;
-                welcome.title = _("Could not connect to '%s'").printf (uri.to_string (false));
+                welcome.title = _("Could not connect to '%s'").printf (uri.to_string_partial (UriHideFlags.NONE));
             }
             hide_spinner ();
         });
@@ -240,7 +240,7 @@ class Taxi.MainWindow : Adw.ApplicationWindow {
     }
 
     private void bookmark () {
-        var uri_string = conn_uri.to_string (false);
+        var uri_string = conn_uri.to_string_partial (UriHideFlags.NONE);
         if (conn_saver.is_bookmarked (uri_string)) {
             conn_saver.remove (uri_string);
         } else {
@@ -284,7 +284,7 @@ class Taxi.MainWindow : Adw.ApplicationWindow {
         file_dragged (uri, Location.LOCAL, local_access);
     }
 
-    private void navigate (Soup.URI uri, IFileAccess file_access, Location pane) {
+    private void navigate (Uri uri, IFileAccess file_access, Location pane) {
         file_access.goto_dir (uri);
         update_pane (pane);
     }
@@ -313,8 +313,8 @@ class Taxi.MainWindow : Adw.ApplicationWindow {
          );
     }
 
-    private void file_delete (Soup.URI uri, Location pane) {
-        var file = File.new_for_uri (uri.to_string (false));
+    private void file_delete (Uri uri, Location pane) {
+        var file = File.new_for_uri (uri.to_string_partial (UriHideFlags.NONE));
         file_operation.delete_recursive.begin (
             file,
             new Cancellable (),
@@ -354,7 +354,7 @@ class Taxi.MainWindow : Adw.ApplicationWindow {
         });
     }
 
-    private Soup.URI on_ask_hostname () {
+    private Uri on_ask_hostname () {
         return conn_uri;
     }
 
